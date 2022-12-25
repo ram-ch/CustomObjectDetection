@@ -1,19 +1,17 @@
 import os
 import numpy as np
 from PIL import Image
-
-
-import torchvision
+# pytoech
 import torch
+import torchvision
 import torch.utils.data
 from torch.optim.lr_scheduler import StepLR
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
-
-
 from engine import train_one_epoch, evaluate
 import utils
 import transforms as T
+# allow downloads
 import ssl
 ssl._create_default_https_context = ssl._create_unverified_context
 
@@ -33,17 +31,13 @@ class PennFudanDataset(torch.utils.data.Dataset):
         img_path = os.path.join(self.root, "PNGImages", self.imgs[idx])
         mask_path = os.path.join(self.root, "PedMasks", self.masks[idx])
         img = Image.open(img_path).convert("RGB")
-        # note that we haven't converted the mask to RGB,
-        # because each color corresponds to a different instance
-        # with 0 being background
+        # mask not converted to RGB
         mask = Image.open(mask_path)
-
         mask = np.array(mask)
         # instances are encoded as different colors
         obj_ids = np.unique(mask)
         # first id is the background, so remove it
         obj_ids = obj_ids[1:]
-
         # split the color-encoded mask into a set
         # of binary masks
         masks = mask == obj_ids[:, None, None]
@@ -76,10 +70,8 @@ class PennFudanDataset(torch.utils.data.Dataset):
         target["image_id"] = image_id
         target["area"] = area
         target["iscrowd"] = iscrowd
-
         if self.transforms is not None:
             img, target = self.transforms(img, target)
-
         return img, target
 
     def __len__(self):
@@ -116,48 +108,47 @@ def get_instance_segmentation_model(num_classes):
 
     return model
 
+if __name__=='__main__':
 
-# use our dataset and defined transformations
-dataset = PennFudanDataset('PennFudanPed', get_transform(train=True))
-dataset_test = PennFudanDataset('PennFudanPed', get_transform(train=False))
+    # params
+    num_classes = 2 # background and person
+        device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
-# split the dataset in train and test set
-torch.manual_seed(1)
-indices = torch.randperm(len(dataset)).tolist()
-dataset = torch.utils.data.Subset(dataset, indices[:-50])
-dataset_test = torch.utils.data.Subset(dataset_test, indices[-50:])
+    # 1. create train and val dataset objects
+    train_dataset = PennFudanDataset('PennFudanPed', get_transform(train=True))
+    val_dataset = PennFudanDataset('PennFudanPed', get_transform(train=False))
 
-# define training and validation data loaders
-data_loader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True, num_workers=1,collate_fn=utils.collate_fn)
-data_loader_test = torch.utils.data.DataLoader(dataset_test, batch_size=1, shuffle=False, num_workers=1,collate_fn=utils.collate_fn)
+    # 2. train, val split
+    torch.manual_seed(1)
+    indices = torch.randperm(len(dataset)).tolist()
+    train_dataset = torch.utils.data.Subset(train_dataset, indices[:-50])
+    val_dataset = torch.utils.data.Subset(val_dataset, indices[-50:])
+
+    # create training and val data loaders
+    train_data_loader = torch.utils.data.DataLoader(train_dataset, batch_size=2, shuffle=True, num_workers=1,collate_fn=utils.collate_fn)
+    val_data_loader = torch.utils.data.DataLoader(val_dataset, batch_size=2, shuffle=False, num_workers=1,collate_fn=utils.collate_fn)
 
 
-device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
-# our dataset has two classes only - background and person
-num_classes = 2
 
-# get the model using our helper function
-model = get_instance_segmentation_model(num_classes)
-# move model to the right device
-model.to(device)
+    # get the model using our helper function
+    model = get_instance_segmentation_model(num_classes)
+    # move model to the right device
+    model.to(device)
 
 # construct an optimizer
 params = [p for p in model.parameters() if p.requires_grad]
-optimizer = torch.optim.SGD(params, lr=0.005,
-                            momentum=0.9, weight_decay=0.0005)
+optimizer = torch.optim.SGD(params, lr=0.005,momentum=0.9, weight_decay=0.0005)
 
-# and a learning rate scheduler which decreases the learning rate by
-# 10x every 3 epochs
+# and a learning rate scheduler which decreases the learning rate by 10x every 3 epochs
 lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
                                                step_size=3,
                                                gamma=0.1)
 
 
-# let's train it for 10 epochs
+
 
 num_epochs = 10
-
 for epoch in range(num_epochs):
     # train for one epoch, printing every 10 iterations
     train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq=10)
