@@ -15,4 +15,4 @@ cp vision/references/detection/engine.py ./
 cp vision/references/detection/coco_utils.py ./
 
 git config --global user.name "ram-ch"
-git config --global email
+git config --global user.email "ch.sairam1988@gmail.com"
